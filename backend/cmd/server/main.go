@@ -19,12 +19,35 @@ import (
 )
 
 func main() {
+	// Self-check mode for Docker HEALTHCHECK: the runtime image is distroless,
+	// so there is no shell or curl to probe /healthz from — the binary has to
+	// check itself. `server --healthcheck` hits its own /healthz and exits
+	// 0/1 accordingly, without starting the full server.
+	if len(os.Args) > 1 && os.Args[1] == "--healthcheck" {
+		os.Exit(healthcheck())
+	}
+
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
 	if err := run(); err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
+}
+
+// healthcheck performs a local GET /healthz and returns a process exit code.
+func healthcheck() int {
+	cfg := config.Load()
+	client := http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://127.0.0.1:" + cfg.APIPort + "/healthz")
+	if err != nil {
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return 1
+	}
+	return 0
 }
 
 func run() error {
